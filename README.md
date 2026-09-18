@@ -13,7 +13,7 @@ the integration — a person or an agent — sees the site's address, never a se
 
 | Step | Who | Command |
 | --- | --- | --- |
-| Generate the site key, with the site's Pinata keys | integrator | `rrs-admin new-site-key <client_id>` |
+| Generate the site key and issue the site's Pinata key | integrator | `rrs-admin new-site-key <client_id>` |
 | Add the address to a pool, send the existential deposit, register the site in the connector | integrator | printed by `new-site-key` |
 | Set up the integration on the site's Home Assistant | engineer | `rrs-admin provision-site <client_id>` |
 
@@ -22,18 +22,35 @@ the integration — a person or an agent — sees the site's address, never a se
 ## Commands
 
 ```bash
-uv run rrs-admin new-site-key oscar-home                      # Pinata keys are typed, input hidden
+uv run rrs-admin new-site-key oscar-home                      # issues the site's Pinata key itself
+uv run rrs-admin new-site-key oscar-home --pinata-manual      # or: type an existing pair, hidden
 uv run rrs-admin new-site-key oscar-home --pinata-from "draft item title"
+uv run rrs-admin pinata-keys oscar-home                       # the site's Pinata keys
+uv run rrs-admin pinata-keys oscar-home --revoke              # revoke them
+uv run rrs-admin pinata-keys --key <api key> --revoke         # revoke one key, e.g. made by hand
 uv run rrs-admin site-info oscar-home                         # what the item holds, no secrets
 uv run rrs-admin provision-site oscar-home --dry-run          # check everything, change nothing
 uv run rrs-admin provision-site oscar-home                    # set it up
 uv run rrs-admin provision-site oscar-home --replace          # remove an existing entry first
 ```
 
-`new-site-key` checks the Pinata keys with Pinata (uploads nothing), generates an
-ED25519 key, creates the item `rrs-site <client_id> - <address>` in the vault
-`Report Service` through `pass-cli` stdin, reads it back and derives the address
-again. A site that already has a key is refused.
+`new-site-key` issues the site's Pinata key, generates an ED25519 key, creates the
+item `rrs-site <client_id> - <address>` in the vault `Report Service` through
+`pass-cli` stdin, reads it back and derives the address again. A site that already
+has a key is refused. If the item cannot be created, the Pinata key just issued is
+revoked.
+
+### Pinata keys
+
+A site's Pinata key is issued through Pinata's API, named `rrs-site <client_id>`,
+with exactly the permissions the integration uses: `pinFileToIPFS` and `unpin`.
+Leaked from a client's machine, it cannot list the account's files or issue keys
+(checked live on 2026-09-18: `testAuthentication` passes, uploading is allowed,
+`pinList` answers 403). The JWT Pinata returns with the pair is dropped unread.
+
+Keys are issued by the *issuer*: an account key with `org:write`, whose JWT sits in
+Proton Pass, vault `Robonomics Pools`, item `rrs-pinata-issuer`, field `JWT` — the
+human-only vault, next to the pool keys.
 
 `provision-site` finds the site's Home Assistant in Fotis's registry (host, port,
 the Proton Pass item with `ha_token`), reads the site's item, checks that its seed,

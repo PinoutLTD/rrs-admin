@@ -1,8 +1,9 @@
 """rrs-admin: site keys and site setup for Pinout Report Service.
 
-  new-site-key <client_id>     integrator: generate the site's key into Proton Pass
+  new-site-key <client_id>     integrator: the site's key and Pinata keys into Proton Pass
   site-info <client_id>        anyone: what the site's item holds (no secrets shown)
   provision-site <client_id>   engineer: set up the integration on the site's HA
+  pinata-keys <client_id>      integrator: list, and with --revoke revoke, a site's Pinata keys
 """
 
 import argparse
@@ -12,6 +13,7 @@ from pathlib import Path
 
 from rrs_admin.config import ConfigError, config_path, load_config
 from rrs_admin.ha import HaError, HomeAssistant
+from rrs_admin.pinata import PinataError, PinataIssuer, key_name, wait_until_accepted
 from rrs_admin.proton_pass import PassClient, PassError
 from rrs_admin.provision import Plan, ProvisionError, provision
 from rrs_admin.redact import REDACT
@@ -30,6 +32,7 @@ from rrs_admin.sites import (
 
 REASON_KEY = "rrs-admin: create a site key for Report Service"
 REASON_SETUP = "rrs-admin: set up Report Service on a site"
+REASON_PINATA = "rrs-admin: manage Pinata keys of Report Service sites"
 
 
 def say(text: str) -> None:
@@ -48,18 +51,43 @@ def ask_pinata() -> PinataKeys:
     return PinataKeys(key, secret)
 
 
+def issuer(config, passes: PassClient) -> PinataIssuer:
+    jwt = passes.field(config.issuer_vault, config.issuer_item, "JWT")
+    if not jwt:
+        raise PassError(f"'{config.issuer_item}' in '{config.issuer_vault}' has no JWT")
+    return PinataIssuer(jwt)
+
+
 def cmd_new_site_key(config, args) -> int:
     passes = PassClient(REASON_KEY)
     client_id = check_client_id(args.client_id)
-    pinata = (
-        pinata_from_item(passes, config.sites_vault, args.pinata_from)
-        if args.pinata_from
-        else ask_pinata()
-    )
-    if not args.skip_pinata_check:
+    existing = find_site_titles(passes.titles(config.sites_vault), client_id)
+    if existing:
+        raise SiteError(f"site '{client_id}' already has a key: {', '.join(existing)}")
+
+    issued_by = None
+    if args.pinata_from:
+        pinata = pinata_from_item(passes, config.sites_vault, args.pinata_from)
+    elif args.pinata_manual:
+        pinata = ask_pinata()
+    else:
+        issued_by = issuer(config, passes)
+        pinata = issued_by.issue_site_key(client_id)
+        say(f"Pinata key '{key_name(client_id)}' issued: upload and unpin only.")
+    if issued_by:
+        wait_until_accepted(pinata)
+    elif not args.skip_pinata_check:
         check_pinata(pinata)
-        say("Pinata accepted the keys.")
-    address, title = create_site_key(passes, config.sites_vault, client_id, pinata)
+    say("Pinata accepted the keys.")
+
+    try:
+        address, title = create_site_key(passes, config.sites_vault, client_id, pinata)
+    except Exception:
+        if issued_by:
+            # A key nobody holds any more is only a liability.
+            issued_by.revoke(pinata.key)
+            say("Setting up the site item failed; the Pinata key just issued is revoked.")
+        raise
     say(f"Site key created: {title}")
     say(f"Address: {address}")
     say("")
@@ -70,6 +98,31 @@ def cmd_new_site_key(config, args) -> int:
     say(f"Then the engineer runs: rrs-admin provision-site {client_id}")
     if args.pinata_from:
         say(f"The draft item '{args.pinata_from}' is no longer needed; delete it in Proton Pass.")
+    return 0
+
+
+def cmd_pinata_keys(config, args) -> int:
+    passes = PassClient(REASON_PINATA)
+    pinata = issuer(config, passes)
+    if args.key:
+        keys = [k for k in pinata.list_keys() if k.id == args.key]
+        if not keys:
+            say(f"No active key {args.key}.")
+            return 1
+    else:
+        keys = pinata.list_keys(name=key_name(check_client_id(args.client_id)))
+        if not keys:
+            say(f"No active Pinata keys named '{key_name(args.client_id)}'.")
+            return 0
+    for key in keys:
+        scope = "admin" if key.scopes.get("admin") else "scoped"
+        say(f"{key.id}  {key.name}  created {key.created}  {scope}")
+    if not args.revoke:
+        say("Listed only. Add --revoke to revoke them; a revoked key stops working at once.")
+        return 0
+    for key in keys:
+        pinata.revoke(key.id)
+        say(f"Revoked {key.id}")
     return 0
 
 
@@ -139,8 +192,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     new = sub.add_parser("new-site-key", help="generate a site key into Proton Pass")
     new.add_argument("client_id")
-    new.add_argument("--pinata-from", metavar="ITEM", help="take Pinata keys from this item (same vault)")
-    new.add_argument("--skip-pinata-check", action="store_true")
+    source = new.add_mutually_exclusive_group()
+    source.add_argument("--pinata-from", metavar="ITEM",
+                        help="take Pinata keys from this item (same vault) instead of issuing")
+    source.add_argument("--pinata-manual", action="store_true",
+                        help="type Pinata keys (hidden) instead of issuing")
+    new.add_argument("--skip-pinata-check", action="store_true",
+                     help="with --pinata-from/--pinata-manual: do not ask Pinata")
+
+    keys = sub.add_parser("pinata-keys", help="list or revoke a site's Pinata keys")
+    keys.add_argument("client_id", nargs="?", default="-")
+    keys.add_argument("--key", help="a specific API key (e.g. one made by hand)")
+    keys.add_argument("--revoke", action="store_true", help="revoke what is listed")
 
     info = sub.add_parser("site-info", help="show and check the site's item, no secrets")
     info.add_argument("client_id")
@@ -165,6 +228,7 @@ COMMANDS = {
     "new-site-key": cmd_new_site_key,
     "site-info": cmd_site_info,
     "provision-site": cmd_provision_site,
+    "pinata-keys": cmd_pinata_keys,
 }
 
 
@@ -173,7 +237,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         config = load_config(config_path(args.config))
         return COMMANDS[args.command](config, args)
-    except (ConfigError, PassError, SiteError, RegistryError, HaError, ProvisionError) as e:
+    except (ConfigError, PassError, SiteError, RegistryError, HaError, ProvisionError,
+            PinataError) as e:
         print(f"rrs-admin: {REDACT(e)}", file=sys.stderr)
         return 1
 

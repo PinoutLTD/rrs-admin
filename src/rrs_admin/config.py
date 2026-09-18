@@ -20,6 +20,8 @@ class Config:
     network: str
     sites_vault: str
     fotis_registry: Path
+    issuer_vault: str
+    issuer_item: str
 
 
 def config_path(explicit: Path | None) -> Path:
@@ -40,12 +42,15 @@ def load_config(path: Path) -> Config:
     base = path.resolve().parent
     try:
         addresses, proton, fotis = data["addresses"], data["proton"], data["fotis"]
+        pinata = data.get("pinata", {})
         return Config(
             recipient=addresses["recipient"],
             pool=addresses["pool"],
             network=addresses.get("network", "polkadot"),
             sites_vault=proton["sites_vault"],
             fotis_registry=(base / fotis["registry"]).resolve(),
+            issuer_vault=pinata.get("issuer_vault", "Robonomics Pools"),
+            issuer_item=pinata.get("issuer_item", "rrs-pinata-issuer"),
         )
     except KeyError as e:
         raise ConfigError(f"{path}: missing setting {e}") from e

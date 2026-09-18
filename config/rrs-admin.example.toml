@@ -12,6 +12,11 @@ network = "polkadot"
 # Where site items live: `rrs-site <client_id> - <address>`.
 sites_vault = "Report Service"
 
+[pinata]
+# The account key that issues site keys (org:write). Human-only vault, field JWT.
+issuer_vault = "Robonomics Pools"
+issuer_item = "rrs-pinata-issuer"
+
 [fotis]
 # Fotis's registry: site host/port and the Proton Pass item with its HA token.
 # Relative to this file.
