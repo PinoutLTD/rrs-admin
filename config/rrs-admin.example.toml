@@ -1,0 +1,18 @@
+# Copy to config/rrs-admin.toml. Public addresses and locations only: every
+# secret (site seeds, Pinata keys, HA tokens) is read from Proton Pass.
+
+[addresses]
+# Report recipient: sites encrypt their reports to it (ED25519).
+recipient = "4…"
+# Subscription owner (pool) new sites are attached to.
+pool = "4…"
+network = "polkadot"
+
+[proton]
+# Where site items live: `rrs-site <client_id> - <address>`.
+sites_vault = "Report Service"
+
+[fotis]
+# Fotis's registry: site host/port and the Proton Pass item with its HA token.
+# Relative to this file.
+registry = "../../fotis-agent/registry.yaml"

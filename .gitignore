@@ -1,0 +1,15 @@
+# Local settings; the example is the only config in git.
+config/*
+!config/
+!config/rrs-admin.example.toml
+
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.py[cod]
+dist/
+build/
+*.egg-info/
+.vscode/
+.DS_Store
