@@ -106,3 +106,13 @@ def test_pinata_keys_lists_and_revokes_only_on_request(fake_pinata, run_cli, cap
     assert run_cli("pinata-keys", "oscar-home", "--revoke") == 0
     deletes = [c[1] for c in fake_pinata.calls if c[0] == "DELETE"]
     assert deletes == ["https://api.pinata.cloud/v3/api_keys/k-old"]
+
+
+def test_a_key_is_found_by_its_name_as_well_as_its_id(fake_pinata, run_cli, capsys):
+    fake_pinata.keys.append({"key": "k-hand", "name": "oscar-home", "createdAt": "2026-09-18",
+                             "revoked": False, "scopes": {"admin": True}})
+    assert run_cli("pinata-keys", "--key", "oscar-home", "--revoke") == 0
+    assert [c[1] for c in fake_pinata.calls if c[0] == "DELETE"] == [
+        "https://api.pinata.cloud/v3/api_keys/k-hand"]
+    assert run_cli("pinata-keys", "--key", "k-other") == 0
+    assert "k-other" in capsys.readouterr().out

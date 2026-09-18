@@ -105,9 +105,10 @@ def cmd_pinata_keys(config, args) -> int:
     passes = PassClient(REASON_PINATA)
     pinata = issuer(config, passes)
     if args.key:
-        keys = [k for k in pinata.list_keys() if k.id == args.key]
+        # Accept what a person sees in Pinata's web app: the key's name, or its id.
+        keys = [k for k in pinata.list_keys() if args.key in (k.id, k.name)]
         if not keys:
-            say(f"No active key {args.key}.")
+            say(f"No active key with the id or name '{args.key}'.")
             return 1
     else:
         keys = pinata.list_keys(name=key_name(check_client_id(args.client_id)))
@@ -202,7 +203,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     keys = sub.add_parser("pinata-keys", help="list or revoke a site's Pinata keys")
     keys.add_argument("client_id", nargs="?", default="-")
-    keys.add_argument("--key", help="a specific API key (e.g. one made by hand)")
+    keys.add_argument("--key", help="a key's id or exact name, e.g. one made by hand")
     keys.add_argument("--revoke", action="store_true", help="revoke what is listed")
 
     info = sub.add_parser("site-info", help="show and check the site's item, no secrets")

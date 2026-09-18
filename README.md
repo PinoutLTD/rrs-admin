@@ -27,7 +27,7 @@ uv run rrs-admin new-site-key oscar-home --pinata-manual      # or: type an exis
 uv run rrs-admin new-site-key oscar-home --pinata-from "draft item title"
 uv run rrs-admin pinata-keys oscar-home                       # the site's Pinata keys
 uv run rrs-admin pinata-keys oscar-home --revoke              # revoke them
-uv run rrs-admin pinata-keys --key <api key> --revoke         # revoke one key, e.g. made by hand
+uv run rrs-admin pinata-keys --key <name or id> --revoke     # revoke one key, e.g. made by hand
 uv run rrs-admin site-info oscar-home                         # what the item holds, no secrets
 uv run rrs-admin provision-site oscar-home --dry-run          # check everything, change nothing
 uv run rrs-admin provision-site oscar-home                    # set it up
