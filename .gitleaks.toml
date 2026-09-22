@@ -1,0 +1,23 @@
+# Exceptions for gitleaks: values that look like secrets and are not.
+#
+# Every entry names one file and why what is in it is safe. A blanket
+# "skip tests/" is deliberately not used: test files are exactly where a real
+# address or key gets pasted by accident while writing a fixture.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = """Published test vectors. tests/fixtures/accounts.json holds \
+mnemonics, mini secrets and addresses of throwaway accounts, generated to pin \
+key derivation against the stack the connector runs. They are published in \
+rrs-ha-integration's fixtures as well, hold nothing and never will."""
+paths = ['''tests/fixtures/accounts\.json''']
+
+[[allowlists]]
+description = """Made-up Pinata credentials in tests: the string is a literal \
+in the test file, not a key Pinata ever issued."""
+regexes = [
+  '''pinata-key-0123456789''',
+  '''pinata-secret-f+''',
+]
