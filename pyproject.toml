@@ -12,6 +12,7 @@ license = {file = "LICENSE"}
 dependencies = [
     "pynacl>=1.6.2",
     "pyyaml>=6.0.3",
+    "substrate-interface>=1.8.1",
 ]
 
 [project.scripts]

@@ -21,3 +21,14 @@ issuer_item = "rrs-pinata-issuer"
 # Fotis's registry: site host/port and the Proton Pass item with its HA token.
 # Relative to this file.
 registry = "../../fotis-agent/registry.yaml"
+
+[chain]
+url = "wss://polkadot.rpc.robonomics.network/"
+
+# Pools: the RWS subscriptions sites publish through. The seed lives in Proton
+# Pass, in the human-only vault — never here.
+[pools.pool-01]
+address = "4…"
+vault = "Robonomics Pools"
+item = "rrs-pool-01"
+seed_field = "Seed Phrase"

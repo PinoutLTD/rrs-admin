@@ -4,6 +4,9 @@
   site-info <client_id>        anyone: what the site's item holds (no secrets shown)
   provision-site <client_id>   engineer: set up the integration on the site's HA
   pinata-keys <client_id>      integrator: list, and with --revoke revoke, a site's Pinata keys
+  pool <name>                  integrator: a pool's subscription and its devices
+  pool-add <address>           integrator: add a device to a pool (dry run by default)
+  pool-remove <address>        integrator: remove a device from a pool
 """
 
 import argparse
@@ -14,10 +17,18 @@ from pathlib import Path
 from rrs_admin.config import ConfigError, config_path, load_config
 from rrs_admin.ha import HaError, HomeAssistant
 from rrs_admin.pinata import PinataError, PinataIssuer, key_name, wait_until_accepted
+from rrs_admin.pools import MAX_DEVICES, PoolError, plan_add, plan_remove
 from rrs_admin.proton_pass import PassClient, PassError
 from rrs_admin.provision import Plan, ProvisionError, provision
 from rrs_admin.redact import REDACT
 from rrs_admin.registry import TOKEN_FIELD, RegistryError, find_ha_site
+from rrs_admin.rws import (
+    ChainError,
+    account_exists,
+    pool_address_of,
+    read_subscription,
+    set_devices,
+)
 from rrs_admin.sites import (
     FIELD_ADDRESS,
     PinataKeys,
@@ -33,6 +44,8 @@ from rrs_admin.sites import (
 REASON_KEY = "rrs-admin: create a site key for Report Service"
 REASON_SETUP = "rrs-admin: set up Report Service on a site"
 REASON_PINATA = "rrs-admin: manage Pinata keys of Report Service sites"
+REASON_POOL = "rrs-admin: manage devices of a Report Service subscription pool"
+DEFAULT_POOL = "pool-01"
 
 
 def say(text: str) -> None:
@@ -185,6 +198,105 @@ def cmd_provision_site(config, args) -> int:
     return 0
 
 
+
+
+def pool_settings(config, name: str) -> dict:
+    pool = config.pools.get(name)
+    if not pool:
+        known = ", ".join(sorted(config.pools)) or "нет ни одного"
+        raise PoolError(f"пул '{name}' не описан в конфиге (есть: {known})")
+    if not pool.get("address"):
+        raise PoolError(f"у пула '{name}' в конфиге нет адреса")
+    return pool
+
+
+def site_labels(passes: PassClient, vault: str) -> dict[str, str]:
+    """Address → site, so a device list reads as sites and not as hashes."""
+
+    labels = {}
+    for title in passes.titles(vault):
+        if title.startswith("rrs-site ") and " - " in title:
+            body = title[len("rrs-site "):]
+            client_id, _, address = body.rpartition(" - ")
+            if address.strip():
+                labels[address.strip()] = client_id.strip()
+    return labels
+
+
+def show_pool(config, name: str, passes: PassClient) -> None:
+    pool = pool_settings(config, name)
+    subscription = read_subscription(config.chain_url, pool["address"])
+    labels = site_labels(passes, config.sites_vault)
+    say(f"{name}: {pool['address']}")
+    for line in subscription.describe():
+        say(f"  {line}")
+    say(f"  devices:      {len(subscription.devices)} of {MAX_DEVICES}")
+    for address in subscription.devices:
+        say(f"    {address}  {labels.get(address, '— объект неизвестен')}")
+
+
+def cmd_pool(config, args) -> int:
+    show_pool(config, args.name, PassClient(REASON_POOL))
+    return 0
+
+
+def change_devices(config, args, make_plan) -> int:
+    passes = PassClient(REASON_POOL)
+    pool = pool_settings(config, args.pool)
+    subscription = read_subscription(config.chain_url, pool["address"])
+    plan = make_plan(pool["address"], list(subscription.devices), args.address)
+
+    labels = site_labels(passes, config.sites_vault)
+    for line in plan.describe():
+        say(line)
+    known = labels.get(args.address)
+    say(f"объект:    {known}" if known else
+        "объект:    неизвестен — в Proton Pass нет айтема rrs-site с этим адресом")
+    if plan.added and not account_exists(config.chain_url, args.address):
+        say("ВНИМАНИЕ: этого аккаунта нет в цепи. Пока на него не отправлен")
+        say("          экзистенциальный депозит 0.000001 XRT, его отчёты будут")
+        say("          отклоняться с InvalidTransaction::Payment.")
+    if not args.send:
+        say("Пробный прогон: ничего не записано. Для записи добавьте --send.")
+        return 0
+
+    seed = passes.field(
+        pool.get("vault", "Robonomics Pools"),
+        pool["item"],
+        pool.get("seed_field", "Seed Phrase"),
+    )
+    if not seed:
+        raise PoolError(f"в айтеме '{pool['item']}' нет сида пула")
+    derived = pool_address_of(seed)
+    if derived != pool["address"]:
+        raise PoolError(
+            f"сид из '{pool['item']}' даёт {derived}, а пул — {pool['address']}: "
+            "подписывать нечем, проверьте айтем"
+        )
+
+    block = set_devices(config.chain_url, seed, list(plan.devices))
+    say(f"Записано в блоке {block}")
+    after = read_subscription(config.chain_url, pool["address"])
+    if set(after.devices) != set(plan.devices):
+        raise ChainError(
+            "список устройств в цепи не совпал с тем, что мы записали — проверьте вручную"
+        )
+    say(f"Проверено: у пула {len(after.devices)} устройств, свободно "
+        f"{MAX_DEVICES - len(after.devices)}.")
+    if plan.added:
+        say(f"Дальше: отправить 0.000001 XRT на {args.address} и завести объект в senders.yaml.")
+    return 0
+
+
+def cmd_pool_add(config, args) -> int:
+    return change_devices(config, args, plan_add)
+
+
+def cmd_pool_remove(config, args) -> int:
+    return change_devices(config, args, plan_remove)
+
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="rrs-admin", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -200,6 +312,16 @@ def build_parser() -> argparse.ArgumentParser:
                         help="type Pinata keys (hidden) instead of issuing")
     new.add_argument("--skip-pinata-check", action="store_true",
                      help="with --pinata-from/--pinata-manual: do not ask Pinata")
+
+    pool = sub.add_parser("pool", help="a pool's subscription and its devices")
+    pool.add_argument("name", nargs="?", default=DEFAULT_POOL)
+
+    for verb, help_text in (("pool-add", "add a device to a pool"),
+                            ("pool-remove", "remove a device from a pool")):
+        change = sub.add_parser(verb, help=f"{help_text} (dry run by default)")
+        change.add_argument("address")
+        change.add_argument("--pool", default=DEFAULT_POOL)
+        change.add_argument("--send", action="store_true", help="really write the list")
 
     keys = sub.add_parser("pinata-keys", help="list or revoke a site's Pinata keys")
     keys.add_argument("client_id", nargs="?", default="-")
@@ -230,6 +352,9 @@ COMMANDS = {
     "site-info": cmd_site_info,
     "provision-site": cmd_provision_site,
     "pinata-keys": cmd_pinata_keys,
+    "pool": cmd_pool,
+    "pool-add": cmd_pool_add,
+    "pool-remove": cmd_pool_remove,
 }
 
 
@@ -239,7 +364,7 @@ def main(argv: list[str] | None = None) -> int:
         config = load_config(config_path(args.config))
         return COMMANDS[args.command](config, args)
     except (ConfigError, PassError, SiteError, RegistryError, HaError, ProvisionError,
-            PinataError) as e:
+            PinataError, PoolError, ChainError) as e:
         print(f"rrs-admin: {REDACT(e)}", file=sys.stderr)
         return 1
 

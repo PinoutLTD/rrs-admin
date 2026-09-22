@@ -14,7 +14,8 @@ the integration — a person or an agent — sees the site's address, never a se
 | Step | Who | Command |
 | --- | --- | --- |
 | Generate the site key and issue the site's Pinata key | integrator | `rrs-admin new-site-key <client_id>` |
-| Add the address to a pool, send the existential deposit, register the site in the connector | integrator | printed by `new-site-key` |
+| Add the address to a pool | integrator | `rrs-admin pool-add <address>` |
+| Send the existential deposit, register the site in the connector | integrator | printed by `new-site-key` |
 | Set up the integration on the site's Home Assistant | engineer | `rrs-admin provision-site <client_id>` |
 
 `client_id` is the site's slug, the same as its folder in `fotis-agent/clients/`.
@@ -58,6 +59,37 @@ the Proton Pass item with `ha_token`), reads the site's item, checks that its se
 step over Home Assistant's REST API: the addresses and Pinata keys, then the seed.
 It waits until the entry is loaded.
 
+## Pools
+
+A site publishes through an RWS subscription — a pool. `RWS.set_devices` **replaces the
+whole device list**, so adding one site means reading the current list, changing it and
+writing all of it back; an error there silently drops other sites out of the subscription.
+These commands do that read-modify-write, and refuse anything that would lose a site:
+
+```bash
+uv run rrs-admin pool                            # subscription, expiry, devices by site
+uv run rrs-admin pool-add <address>              # dry run
+uv run rrs-admin pool-add <address> --send       # sign with the pool key and write
+uv run rrs-admin pool-remove <address> [--send]
+```
+
+What is checked before anything is signed:
+
+- the new list is built from the list the chain holds now, never from assumptions;
+- an address already in the list, the pool's own address, and anything past the limit of
+  32 devices are refused;
+- the composed call is **decoded back** and its addresses compared with the plan;
+- the seed in Proton Pass must derive the pool's own address;
+- after the write the subscription is read again and compared with what was written.
+
+Device lists read as sites: the addresses are matched against the `rrs-site …` items in
+Proton Pass. An added account that does not exist on chain yet is called out — until it
+receives the existential deposit, its reports are refused with
+`InvalidTransaction::Payment`. Sending that deposit is a person's job, not this tool's.
+
+Pools live in `config/rrs-admin.toml`; the pool's seed stays in Proton Pass, in the
+human-only vault.
+
 ## How secrets are handled
 
 - Everything secret is read from Proton Pass into memory and sent on; nothing is
@@ -85,6 +117,14 @@ uv run rrs-admin --help
 
 `config/rrs-admin.toml` holds the current recipient and pool addresses and the
 path to Fotis's registry. It is not committed.
+
+## The chain library
+
+`src/rrs_admin/rws.py` is the only module that talks to the chain, and the only one that
+uses `substrate-interface`. The integration dropped that dependency because it installs on
+ARM and musl inside Home Assistant; this tool runs on a laptop, where the library's
+storage-map queries and error messages save a lot of code. Everything else here — key
+derivation included — runs on the integration's own code.
 
 ## Key code
 
