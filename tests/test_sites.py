@@ -7,8 +7,8 @@ from conftest import (
     FakePass,
     site_fields,
 )
+from robonomicsinterface import Keypair
 
-from rrs_admin.chain import Keypair
 from rrs_admin.sites import (
     PinataKeys,
     SiteError,
@@ -23,7 +23,7 @@ PINATA = PinataKeys(PINATA_KEY, PINATA_SECRET)
 
 def test_every_fixture_account_derives_its_robonomics_address():
     for account in ACCOUNTS:
-        assert Keypair.create_from_mnemonic(account["mnemonic"]).ss58_address == account["account_address"]
+        assert Keypair.from_mnemonic(account["mnemonic"]).address == account["account_address"]
 
 
 def test_new_site_key_lands_in_proton_pass_and_agrees_with_itself():
@@ -32,7 +32,7 @@ def test_new_site_key_lands_in_proton_pass_and_agrees_with_itself():
 
     assert title == f"rrs-site oscar-home - {address}"
     stored = passes.items[title]
-    assert Keypair.create_from_secret(stored["Seed Phrase"]).ss58_address == address
+    assert Keypair.from_secret(stored["Seed Phrase"]).address == address
     assert stored["Address"] == address
     assert (stored["API Key"], stored["API Secret"]) == (PINATA_KEY, PINATA_SECRET)
     assert stored["client_id"] == "oscar-home" and stored["Role"] == "site"

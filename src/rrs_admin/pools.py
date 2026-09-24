@@ -11,7 +11,7 @@ own address does not need a slot: the pool itself publishes nothing.
 
 from dataclasses import dataclass
 
-from rrs_admin.chain import ss58_decode
+from robonomicsinterface import is_valid_address
 
 MAX_DEVICES = 32
 
@@ -49,10 +49,10 @@ class DevicePlan:
 
 
 def check_address(address: str) -> str:
-    try:
-        ss58_decode(address)
-    except Exception as e:
-        raise PoolError(f"'{address}' is not a Robonomics address") from e
+    # Robonomics format only: the chain returns the list in format 32, so a `5…`
+    # spelling of a listed device would slip past the duplicate check.
+    if not is_valid_address(address):
+        raise PoolError(f"'{address}' is not a Robonomics address")
     return address
 
 

@@ -10,9 +10,8 @@ readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.13,<4.0"
 license = {file = "LICENSE"}
 dependencies = [
-    "pynacl>=1.6.2",
     "pyyaml>=6.0.3",
-    "substrate-interface>=1.8.1",
+    "robonomics-interface==3.0.0rc1",
 ]
 
 [project.scripts]
@@ -30,7 +29,6 @@ packages = ["src/rrs_admin"]
 [tool.ruff]
 target-version = "py313"
 line-length = 100
-extend-exclude = ["src/rrs_admin/chain"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

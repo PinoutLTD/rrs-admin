@@ -32,6 +32,9 @@ def test_removing_leaves_the_others_untouched():
         ([A, NEW], NEW, "already a device"),
         ([A], POOL, "does not need a slot"),
         ([A], "not-an-address", "not a Robonomics address"),
+        # A itself in the generic Substrate format: the same key, but the chain
+        # lists devices in format 32, so it would look like a new device.
+        ([A], "5G6sPPd14qmXGNJXr3Lua2ciJocRF9rkJvHq88ZCDKnTSWZe", "not a Robonomics address"),
     ],
 )
 def test_a_write_that_would_change_nothing_or_waste_a_slot_is_refused(current, address, message):

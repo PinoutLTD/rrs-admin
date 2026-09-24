@@ -13,7 +13,8 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 
-from rrs_admin.chain import Keypair, SS58Error, ss58_decode
+from robonomicsinterface import Keypair, decode_address, generate_mnemonic
+
 from rrs_admin.proton_pass import PassClient, PassError
 from rrs_admin.redact import REDACT
 
@@ -81,8 +82,8 @@ def find_site_titles(titles: list[str], client_id: str) -> list[str]:
         if title.startswith(prefix):
             address = title[len(prefix):].strip()
             try:
-                ss58_decode(address)
-            except (SS58Error, ValueError):
+                decode_address(address)
+            except ValueError:
                 continue  # a draft item without a real address yet
             found.append(title)
     return found
@@ -147,9 +148,9 @@ def create_site_key(
             "A second key would leave two addresses for one site; use the existing one"
         )
 
-    mnemonic = Keypair.generate_mnemonic()
+    mnemonic = generate_mnemonic()
     REDACT.add(mnemonic, pinata.key, pinata.secret)
-    address = Keypair.create_from_mnemonic(mnemonic).ss58_address
+    address = Keypair.from_mnemonic(mnemonic).address
     title = site_title(client_id, address)
     passes.create_custom(vault, site_item(passes.custom_template(), client_id, address, mnemonic, pinata))
     del mnemonic
@@ -161,7 +162,7 @@ def create_site_key(
     except PassError as e:
         raise SiteError(f"the item was created but cannot be read back: {e}") from e
     REDACT.add(stored)
-    derived = Keypair.create_from_secret(stored).ss58_address
+    derived = Keypair.from_secret(stored).address
     if derived != address:
         raise SiteError(f"the stored seed derives {derived}, not {address}; do not use this item")
     return address, title
@@ -191,7 +192,7 @@ def read_site(passes: PassClient, vault: str, client_id: str) -> SiteSecrets:
     if not pinata.key or not pinata.secret:
         raise SiteError(f"'{title}' lacks the site's Pinata keys ('{FIELD_PINATA_KEY}', '{FIELD_PINATA_SECRET}')")
 
-    address = Keypair.create_from_secret(seed).ss58_address
+    address = Keypair.from_secret(seed).address
     stored_address = passes.field(vault, title, FIELD_ADDRESS)
     title_address = title.rsplit(" - ", 1)[1].strip()
     if not (address == stored_address == title_address):
