@@ -120,15 +120,14 @@ path to Fotis's registry. It is not committed.
 
 ## The chain library
 
-`src/rrs_admin/rws.py` is the only module that talks to the chain, and the only one that
-uses `substrate-interface`. The integration dropped that dependency because it installs on
-ARM and musl inside Home Assistant; this tool runs on a laptop, where the library's
-storage-map queries and error messages save a lot of code. Everything else here — key
-derivation included — runs on the integration's own code.
+Keys, addresses and the chain all come from
+[robonomics-interface](https://github.com/airalab/robonomics-interface) 3, the same
+library the connector and the integration use, so a key made here is derived exactly as
+the integration derives it. The tests pin this with the integration's vectors
+(`tests/fixtures/accounts.json`).
 
-## Key code
-
-`src/rrs_admin/chain` is a verbatim copy of the ED25519, BIP39 and SS58 code from
-[rrs-ha-integration](https://github.com/PinoutLTD/rrs-ha-integration), so a key made
-here is derived exactly as the integration derives it; the tests pin this with the
-integration's vectors. The copies should become one shared package.
+`src/rrs_admin/rws.py` is the only module that talks to the chain. A command opens one
+connection and does all its reads and its write through it. `set_devices` takes the
+device list flat, and fails when the call failed inside the block, not only when the
+node refused it. After a write, the list is read back from the chain and compared with
+the plan that was shown.

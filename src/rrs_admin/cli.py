@@ -14,6 +14,8 @@ import getpass
 import sys
 from pathlib import Path
 
+from robonomicsinterface import RobonomicsError
+
 from rrs_admin.config import ConfigError, config_path, load_config
 from rrs_admin.ha import HaError, HomeAssistant
 from rrs_admin.pinata import PinataError, PinataIssuer, key_name, wait_until_accepted
@@ -25,6 +27,7 @@ from rrs_admin.registry import TOKEN_FIELD, RegistryError, find_ha_site
 from rrs_admin.rws import (
     ChainError,
     account_exists,
+    connect,
     pool_address_of,
     read_subscription,
     set_devices,
@@ -225,7 +228,8 @@ def site_labels(passes: PassClient, vault: str) -> dict[str, str]:
 
 def show_pool(config, name: str, passes: PassClient) -> None:
     pool = pool_settings(config, name)
-    subscription = read_subscription(config.chain_url, pool["address"])
+    with connect(config.chain_url) as chain:
+        subscription = read_subscription(chain, pool["address"])
     labels = site_labels(passes, config.sites_vault)
     say(f"{name}: {pool['address']}")
     for line in subscription.describe():
@@ -243,7 +247,12 @@ def cmd_pool(config, args) -> int:
 def change_devices(config, args, make_plan) -> int:
     passes = PassClient(REASON_POOL)
     pool = pool_settings(config, args.pool)
-    subscription = read_subscription(config.chain_url, pool["address"])
+    with connect(config.chain_url) as chain:
+        return write_devices(config, args, make_plan, passes, pool, chain)
+
+
+def write_devices(config, args, make_plan, passes, pool, chain) -> int:
+    subscription = read_subscription(chain, pool["address"])
     plan = make_plan(pool["address"], list(subscription.devices), args.address)
 
     labels = site_labels(passes, config.sites_vault)
@@ -252,7 +261,7 @@ def change_devices(config, args, make_plan) -> int:
     known = labels.get(args.address)
     say(f"объект:    {known}" if known else
         "объект:    неизвестен — в Proton Pass нет айтема rrs-site с этим адресом")
-    if plan.added and not account_exists(config.chain_url, args.address):
+    if plan.added and not account_exists(chain, args.address):
         say("ВНИМАНИЕ: этого аккаунта нет в цепи. Пока на него не отправлен")
         say("          экзистенциальный депозит 0.000001 XRT, его отчёты будут")
         say("          отклоняться с InvalidTransaction::Payment.")
@@ -274,12 +283,15 @@ def change_devices(config, args, make_plan) -> int:
             "подписывать нечем, проверьте айтем"
         )
 
-    block = set_devices(config.chain_url, seed, list(plan.devices))
+    block = set_devices(chain, seed, list(plan.devices))
     say(f"Записано в блоке {block}")
-    after = read_subscription(config.chain_url, pool["address"])
-    if set(after.devices) != set(plan.devices):
+    # Read back from the chain: a stronger check than decoding the call before
+    # signing, but it comes after the write, so the message says how to undo it.
+    after = read_subscription(chain, pool["address"])
+    if list(after.devices) != list(plan.devices):
         raise ChainError(
-            "список устройств в цепи не совпал с тем, что мы записали — проверьте вручную"
+            "список устройств в цепи не совпал с тем, что мы записали — проверьте "
+            f"`rrs-admin pool {args.pool}`. Список до записи: {', '.join(plan.current)}"
         )
     say(f"Проверено: у пула {len(after.devices)} устройств, свободно "
         f"{MAX_DEVICES - len(after.devices)}.")
@@ -364,7 +376,7 @@ def main(argv: list[str] | None = None) -> int:
         config = load_config(config_path(args.config))
         return COMMANDS[args.command](config, args)
     except (ConfigError, PassError, SiteError, RegistryError, HaError, ProvisionError,
-            PinataError, PoolError, ChainError) as e:
+            PinataError, PoolError, ChainError, RobonomicsError) as e:
         print(f"rrs-admin: {REDACT(e)}", file=sys.stderr)
         return 1
 

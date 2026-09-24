@@ -2,8 +2,8 @@ import json
 from pathlib import Path
 
 import pytest
+from robonomicsinterface import Keypair
 
-from rrs_admin.chain import Keypair
 from rrs_admin.proton_pass import PassError
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -54,4 +54,4 @@ def site_pass():
 
 
 def test_fixture_account_is_what_the_integration_derives():
-    assert Keypair.create_from_mnemonic(SITE_MNEMONIC).ss58_address == SITE_ADDRESS
+    assert Keypair.from_mnemonic(SITE_MNEMONIC).address == SITE_ADDRESS
