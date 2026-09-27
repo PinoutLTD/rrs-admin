@@ -1,6 +1,6 @@
 import pytest
 
-from rrs_admin.pools import MAX_DEVICES, PoolError, plan_add, plan_remove
+from rrs_admin.pools import MAX_DEVICES, PoolError, plan_add, plan_remove, plan_rewrite
 
 # Accounts of the published test mnemonics in tests/fixtures, not real sites.
 POOL = "4GuDRQsfH71yHM9aL4Kfu3SCzW6cFDGi45k9VYGNNis9v76D"  # from the raw seed 0x11…11
@@ -51,3 +51,16 @@ def test_the_limit_of_32_devices_is_the_pools_limit():
 def test_removing_an_address_that_is_not_there_is_refused():
     with pytest.raises(PoolError, match="not a device"):
         plan_remove(POOL, [A], NEW)
+
+
+def test_a_rewrite_writes_exactly_the_list_that_is_there():
+    plan = plan_rewrite(POOL, [A, B, NEW])
+
+    assert plan.devices == plan.current == (A, B, NEW)
+    assert plan.added == () and plan.removed == ()
+
+
+def test_rewriting_an_empty_list_is_refused():
+    with pytest.raises(PoolError, match="no devices"):
+        plan_rewrite(POOL, [])
+

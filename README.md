@@ -71,6 +71,7 @@ uv run rrs-admin pool                            # subscription, expiry, devices
 uv run rrs-admin pool-add <address>              # dry run
 uv run rrs-admin pool-add <address> --send       # sign with the pool key and write
 uv run rrs-admin pool-remove <address> [--send]
+uv run rrs-admin pool-rewrite [--send]         # write the same list back: checks that writing works
 ```
 
 What is checked before anything is signed:
@@ -78,9 +79,13 @@ What is checked before anything is signed:
 - the new list is built from the list the chain holds now, never from assumptions;
 - an address already in the list, the pool's own address, and anything past the limit of
   32 devices are refused;
-- the composed call is **decoded back** and its addresses compared with the plan;
 - the seed in Proton Pass must derive the pool's own address;
-- after the write the subscription is read again and compared with what was written.
+- a call that fails inside the block is an error, not a success with a block hash;
+- after the write the subscription is read again and compared, in order, with what was
+  written; on a mismatch the message gives the list as it was before.
+
+`pool-rewrite` changes nothing on chain. Run it with `--send` after moving to a new
+version of robonomics-interface or a new pool key, before a real change depends on it.
 
 Device lists read as sites: the addresses are matched against the `rrs-site …` items in
 Proton Pass. An added account that does not exist on chain yet is called out — until it

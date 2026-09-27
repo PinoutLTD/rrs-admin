@@ -7,6 +7,7 @@
   pool <name>                  integrator: a pool's subscription and its devices
   pool-add <address>           integrator: add a device to a pool (dry run by default)
   pool-remove <address>        integrator: remove a device from a pool
+  pool-rewrite                 integrator: write a pool's list back unchanged, to check writing
 """
 
 import argparse
@@ -19,7 +20,7 @@ from robonomicsinterface import RobonomicsError
 from rrs_admin.config import ConfigError, config_path, load_config
 from rrs_admin.ha import HaError, HomeAssistant
 from rrs_admin.pinata import PinataError, PinataIssuer, key_name, wait_until_accepted
-from rrs_admin.pools import MAX_DEVICES, PoolError, plan_add, plan_remove
+from rrs_admin.pools import MAX_DEVICES, PoolError, plan_add, plan_remove, plan_rewrite
 from rrs_admin.proton_pass import PassClient, PassError
 from rrs_admin.provision import Plan, ProvisionError, provision
 from rrs_admin.redact import REDACT
@@ -175,7 +176,6 @@ def cmd_provision_site(config, args) -> int:
 
     plan = Plan(
         site=site,
-        network=args.network or config.network,
         recipient=args.recipient or config.recipient,
         pool=args.pool or config.pool,
         email=args.email,
@@ -252,16 +252,19 @@ def change_devices(config, args, make_plan) -> int:
 
 
 def write_devices(config, args, make_plan, passes, pool, chain) -> int:
+    address = getattr(args, "address", None)
     subscription = read_subscription(chain, pool["address"])
-    plan = make_plan(pool["address"], list(subscription.devices), args.address)
+    plan = make_plan(pool["address"], list(subscription.devices), address)
 
-    labels = site_labels(passes, config.sites_vault)
     for line in plan.describe():
         say(line)
-    known = labels.get(args.address)
-    say(f"объект:    {known}" if known else
-        "объект:    неизвестен — в Proton Pass нет айтема rrs-site с этим адресом")
-    if plan.added and not account_exists(chain, args.address):
+    if address is None:
+        say("изменений: нет — тот же список записывается заново, чтобы проверить запись")
+    else:
+        known = site_labels(passes, config.sites_vault).get(address)
+        say(f"объект:    {known}" if known else
+            "объект:    неизвестен — в Proton Pass нет айтема rrs-site с этим адресом")
+    if plan.added and not account_exists(chain, address):
         say("ВНИМАНИЕ: этого аккаунта нет в цепи. Пока на него не отправлен")
         say("          экзистенциальный депозит 0.000001 XRT, его отчёты будут")
         say("          отклоняться с InvalidTransaction::Payment.")
@@ -296,7 +299,7 @@ def write_devices(config, args, make_plan, passes, pool, chain) -> int:
     say(f"Проверено: у пула {len(after.devices)} устройств, свободно "
         f"{MAX_DEVICES - len(after.devices)}.")
     if plan.added:
-        say(f"Дальше: отправить 0.000001 XRT на {args.address} и завести объект в senders.yaml.")
+        say(f"Дальше: отправить 0.000001 XRT на {address} и завести объект в senders.yaml.")
     return 0
 
 
@@ -306,6 +309,10 @@ def cmd_pool_add(config, args) -> int:
 
 def cmd_pool_remove(config, args) -> int:
     return change_devices(config, args, plan_remove)
+
+
+def cmd_pool_rewrite(config, args) -> int:
+    return change_devices(config, args, plan_rewrite)
 
 
 
@@ -335,6 +342,13 @@ def build_parser() -> argparse.ArgumentParser:
         change.add_argument("--pool", default=DEFAULT_POOL)
         change.add_argument("--send", action="store_true", help="really write the list")
 
+    rewrite = sub.add_parser(
+        "pool-rewrite",
+        help="write a pool's device list back unchanged, to check writing (dry run by default)",
+    )
+    rewrite.add_argument("--pool", default=DEFAULT_POOL)
+    rewrite.add_argument("--send", action="store_true", help="really write the list")
+
     keys = sub.add_parser("pinata-keys", help="list or revoke a site's Pinata keys")
     keys.add_argument("client_id", nargs="?", default="-")
     keys.add_argument("--key", help="a key's id or exact name, e.g. one made by hand")
@@ -351,7 +365,6 @@ def build_parser() -> argparse.ArgumentParser:
     prov.add_argument("--token-item", help="with --ha-url: item holding ha_token")
     prov.add_argument("--recipient", help="override the recipient address")
     prov.add_argument("--pool", help="override the subscription owner (pool) address")
-    prov.add_argument("--network", help="override the network (default from config)")
     prov.add_argument("--email", help="optional e-mail shown in reports")
     prov.add_argument("--replace", action="store_true",
                       help="remove an existing entry first (its stored seed is deleted)")
@@ -367,6 +380,7 @@ COMMANDS = {
     "pool": cmd_pool,
     "pool-add": cmd_pool_add,
     "pool-remove": cmd_pool_remove,
+    "pool-rewrite": cmd_pool_rewrite,
 }
 
 

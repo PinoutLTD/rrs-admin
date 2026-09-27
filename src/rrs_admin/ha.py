@@ -28,6 +28,8 @@ class Step:
     errors: dict = field(default_factory=dict)
     reason: str | None = None
     entry_id: str | None = None
+    # Field names the form asks for, from its data_schema.
+    fields: tuple[str, ...] = ()
 
     @classmethod
     def from_result(cls, result: dict) -> "Step":
@@ -40,6 +42,11 @@ class Step:
             errors=dict(result.get("errors") or {}),
             reason=result.get("reason"),
             entry_id=entry_id if isinstance(entry_id, str) else None,
+            fields=tuple(
+                item["name"]
+                for item in result.get("data_schema") or []
+                if isinstance(item, dict) and "name" in item
+            ),
         )
 
 

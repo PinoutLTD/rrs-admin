@@ -19,7 +19,10 @@ CREATED = "create_entry"
 ABORT = "abort"
 
 # Field names of the integration's config flow (rrs-ha-integration const.py).
+# Only betas up to 1.1.0-beta.6 ask for the network; the answer is always
+# Polkadot, since Robonomics on Kusama is legacy and shutting down.
 F_NETWORK = "network"
+POLKADOT = "polkadot"
 F_RECIPIENT = "problem_service_robonomics_address"
 F_PINATA_PUBLIC = "pinata_public"
 F_PINATA_SECRET = "pinata_secret"
@@ -44,14 +47,14 @@ class ProvisionError(RuntimeError):
 @dataclass(frozen=True)
 class Plan:
     site: SiteSecrets
-    network: str
     recipient: str
     pool: str
     email: str | None
 
-    def user_step(self) -> dict:
+    def user_step(self, fields: tuple[str, ...] = ()) -> dict:
+        """The first form, filled with only the fields that form asks for."""
+
         data = {
-            F_NETWORK: self.network,
             F_RECIPIENT: self.recipient,
             F_PINATA_PUBLIC: self.site.pinata.key,
             F_PINATA_SECRET: self.site.pinata.secret,
@@ -59,13 +62,14 @@ class Plan:
         }
         if self.email:
             data[F_EMAIL] = self.email
+        if F_NETWORK in fields:
+            data[F_NETWORK] = POLKADOT
         return data
 
     def describe(self) -> list[str]:
         return [
             f"site:        {self.site.client_id}",
             f"address:     {self.site.address}",
-            f"network:     {self.network}",
             f"recipient:   {self.recipient}",
             f"pool:        {self.pool}",
             f"e-mail:      {self.email or '—'}",
@@ -107,7 +111,7 @@ def provision(
     flow_id = step.flow_id
     try:
         say("Step 1/2: addresses and Pinata keys")
-        step = ha.submit(flow_id, plan.user_step())
+        step = ha.submit(flow_id, plan.user_step(step.fields))
         if step.type != FORM or step.step_id != "seed" or step.errors:
             raise ProvisionError(f"step 1 failed: {_explain(step)}")
 

@@ -73,6 +73,21 @@ def plan_add(pool: str, current: list[str], address: str) -> DevicePlan:
     return DevicePlan(pool, tuple(current), devices, added=(address,))
 
 
+def plan_rewrite(pool: str, current: list[str], address: None = None) -> DevicePlan:
+    """Write the list that is already there: a check that writing works.
+
+    Nothing changes on chain, so it is the safe way to try a new chain library
+    or a new pool key against the live network before a real change needs it.
+    """
+
+    if not current:
+        raise PoolError(
+            f"{pool} has no devices: rewriting an empty list checks nothing, "
+            "and pool-add is the way to fill it"
+        )
+    return DevicePlan(pool, tuple(current), tuple(current))
+
+
 def plan_remove(pool: str, current: list[str], address: str) -> DevicePlan:
     check_address(address)
     if address not in current:
