@@ -17,8 +17,13 @@ GENERATED = "abandon ability able about above absent absorb abstract absurd abus
 
 
 class FakeHA:
-    def __init__(self, entries=None, user_errors=None):
+    def __init__(self, entries=None, user_errors=None, asks_network=False):
         self.entries = entries or []
+        # Betas up to 1.1.0-beta.6 ask for the network in the first form.
+        self.fields = ["problem_service_robonomics_address", "pinata_public", "pinata_secret",
+                       "sender_email", "subscription_owner_robonomics_address"]
+        if asks_network:
+            self.fields.insert(0, "network")
         self.user_errors = user_errors or {}
         self.requests: list[tuple[str, str, dict | None]] = []
         self.aborted: list[str] = []
@@ -36,7 +41,8 @@ class FakeHA:
             self.entries = [e for e in self.entries if e["entry_id"] != entry_id]
             return {"require_restart": False}
         if path == "/api/config/config_entries/flow":
-            return {"type": "form", "flow_id": "f1", "step_id": "user", "errors": {}}
+            return {"type": "form", "flow_id": "f1", "step_id": "user", "errors": {},
+                    "data_schema": [{"name": name} for name in self.fields]}
         if path == "/api/config/config_entries/flow/f1" and method == "DELETE":
             self.aborted.append("f1")
             return None
@@ -88,7 +94,7 @@ def fake_ha():
 
 def make_plan(site_pass):
     return Plan(site=read_site(site_pass, "Report Service", "oscar-home"),
-                network="polkadot", recipient="4GsB", pool="4G6Z", email=None)
+                recipient="4GsB", pool="4G6Z", email=None)
 
 
 def run(fake_ha, site_pass, **kwargs):
@@ -141,3 +147,17 @@ def test_an_existing_entry_is_kept_unless_replace_is_asked(fake_ha, site_pass):
 def test_redactor_masks_secrets_in_any_text():
     REDACT.add("a-secret-value-123")
     assert REDACT("error: a-secret-value-123 rejected") == "error: ‹hidden› rejected"
+
+
+def test_the_network_is_not_sent_when_the_form_does_not_ask_for_it(fake_ha, site_pass):
+    run(fake_ha, site_pass)
+    user = [b for m, p, b in fake_ha["ha"].requests if m == "POST"][1]
+    assert "network" not in user
+
+
+def test_an_older_integration_asking_for_the_network_gets_polkadot(fake_ha, site_pass):
+    fake_ha["ha"] = FakeHA(asks_network=True)
+    run(fake_ha, site_pass)
+    user = [b for m, p, b in fake_ha["ha"].requests if m == "POST"][1]
+    assert user["network"] == "polkadot"
+

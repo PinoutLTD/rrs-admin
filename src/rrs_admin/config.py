@@ -17,7 +17,6 @@ class ConfigError(RuntimeError):
 class Config:
     recipient: str
     pool: str
-    network: str
     sites_vault: str
     fotis_registry: Path
     issuer_vault: str
@@ -49,7 +48,6 @@ def load_config(path: Path) -> Config:
         return Config(
             recipient=addresses["recipient"],
             pool=addresses["pool"],
-            network=addresses.get("network", "polkadot"),
             sites_vault=proton["sites_vault"],
             fotis_registry=(base / fotis["registry"]).resolve(),
             issuer_vault=pinata.get("issuer_vault", "Robonomics Pools"),

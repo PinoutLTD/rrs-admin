@@ -176,7 +176,6 @@ def cmd_provision_site(config, args) -> int:
 
     plan = Plan(
         site=site,
-        network=args.network or config.network,
         recipient=args.recipient or config.recipient,
         pool=args.pool or config.pool,
         email=args.email,
@@ -366,7 +365,6 @@ def build_parser() -> argparse.ArgumentParser:
     prov.add_argument("--token-item", help="with --ha-url: item holding ha_token")
     prov.add_argument("--recipient", help="override the recipient address")
     prov.add_argument("--pool", help="override the subscription owner (pool) address")
-    prov.add_argument("--network", help="override the network (default from config)")
     prov.add_argument("--email", help="optional e-mail shown in reports")
     prov.add_argument("--replace", action="store_true",
                       help="remove an existing entry first (its stored seed is deleted)")
