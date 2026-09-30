@@ -4,6 +4,7 @@
   site-info <client_id>        anyone: what the site's item holds (no secrets shown)
   provision-site <client_id>   engineer: set up the integration on the site's HA
   pinata-keys <client_id>      integrator: list, and with --revoke revoke, a site's Pinata keys
+  pinata-unpin-key             integrator: the helpdesk bridge's unpin-only Pinata key
   pool <name>                  integrator: a pool's subscription and its devices
   pool-add <address>           integrator: add a device to a pool (dry run by default)
   pool-remove <address>        integrator: remove a device from a pool
@@ -19,7 +20,13 @@ from robonomicsinterface import RobonomicsError
 
 from rrs_admin.config import ConfigError, config_path, load_config
 from rrs_admin.ha import HaError, HomeAssistant
-from rrs_admin.pinata import PinataError, PinataIssuer, key_name, wait_until_accepted
+from rrs_admin.pinata import (
+    UNPIN_KEY_NAME,
+    PinataError,
+    PinataIssuer,
+    key_name,
+    wait_until_accepted,
+)
 from rrs_admin.pools import MAX_DEVICES, PoolError, plan_add, plan_remove, plan_rewrite
 from rrs_admin.proton_pass import PassClient, PassError
 from rrs_admin.provision import Plan, ProvisionError, provision
@@ -141,6 +148,60 @@ def cmd_pinata_keys(config, args) -> int:
     for key in keys:
         pinata.revoke(key.id)
         say(f"Revoked {key.id}")
+    return 0
+
+
+UNPIN_ITEM = "rrs-unpin (Pinata)"
+
+
+def unpin_item(template: dict, keys: PinataKeys) -> dict:
+    item = dict(template)
+    item["title"] = UNPIN_ITEM
+    item["sections"] = [{
+        "section_name": "Pinata",
+        "fields": [
+            {"field_name": "API Key", "field_type": "hidden", "value": keys.key},
+            {"field_name": "API Secret", "field_type": "hidden", "value": keys.secret},
+            {"field_name": "Key name", "field_type": "text", "value": UNPIN_KEY_NAME},
+            {"field_name": "Permissions", "field_type": "text", "value": "pinning: unpin"},
+            {"field_name": "Used by", "field_type": "text", "value": "rrs-helpdesk-bridge"},
+        ],
+    }]
+    return item
+
+
+def cmd_pinata_unpin_key(config, args) -> int:
+    passes = PassClient(REASON_PINATA)
+    if UNPIN_ITEM in passes.titles(config.sites_vault):
+        say(f"'{UNPIN_ITEM}' already exists in '{config.sites_vault}': nothing to issue.")
+        say("To replace it: revoke the key (pinata-keys --key rrs-unpin --revoke), "
+            "delete the item, run again.")
+        return 1
+    pinata = issuer(config, passes)
+    active = pinata.list_keys(name=UNPIN_KEY_NAME)
+    if active:
+        say(f"An active Pinata key '{UNPIN_KEY_NAME}' exists ({active[0].id}) but no "
+            f"item holds it. Revoke it first: pinata-keys --key {UNPIN_KEY_NAME} --revoke")
+        return 1
+    say(f"Key:   '{UNPIN_KEY_NAME}', permissions: pinning/unpin only")
+    say(f"Item:  '{UNPIN_ITEM}' in vault '{config.sites_vault}'")
+    if not args.send:
+        say("Dry run: nothing issued. Add --send to issue the key and store it.")
+        return 0
+
+    keys = pinata.issue_unpin_key()
+    try:
+        passes.create_custom(config.sites_vault, unpin_item(passes.custom_template(), keys))
+        if passes.field(config.sites_vault, UNPIN_ITEM, "API Key") != keys.key:
+            raise PassError(f"'{UNPIN_ITEM}' does not hold the key just issued")
+    except Exception:
+        # A key nobody holds any more is only a liability.
+        pinata.revoke(keys.key)
+        say("Storing the key failed; the Pinata key just issued is revoked.")
+        raise
+    say(f"Issued '{UNPIN_KEY_NAME}' and stored it in '{UNPIN_ITEM}'.")
+    say("The server's Proton Pass token must be able to read this item: if it is "
+        "granted items one by one, share this one with it.")
     return 0
 
 
@@ -349,6 +410,12 @@ def build_parser() -> argparse.ArgumentParser:
     rewrite.add_argument("--pool", default=DEFAULT_POOL)
     rewrite.add_argument("--send", action="store_true", help="really write the list")
 
+    unpin = sub.add_parser(
+        "pinata-unpin-key",
+        help="issue the helpdesk bridge's unpin-only Pinata key (dry run by default)",
+    )
+    unpin.add_argument("--send", action="store_true", help="really issue and store it")
+
     keys = sub.add_parser("pinata-keys", help="list or revoke a site's Pinata keys")
     keys.add_argument("client_id", nargs="?", default="-")
     keys.add_argument("--key", help="a key's id or exact name, e.g. one made by hand")
@@ -377,6 +444,7 @@ COMMANDS = {
     "site-info": cmd_site_info,
     "provision-site": cmd_provision_site,
     "pinata-keys": cmd_pinata_keys,
+    "pinata-unpin-key": cmd_pinata_unpin_key,
     "pool": cmd_pool,
     "pool-add": cmd_pool_add,
     "pool-remove": cmd_pool_remove,

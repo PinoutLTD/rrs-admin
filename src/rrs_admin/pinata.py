@@ -25,6 +25,14 @@ from rrs_admin.sites import PinataKeys, SiteError, check_pinata
 API = "https://api.pinata.cloud/v3/api_keys"
 SITE_SCOPE = {"pinning": {"pinFileToIPFS": True, "unpin": True}}
 
+# The helpdesk bridge unpins a report's archive once its ticket is closed, or
+# after six months. Its key can do that and nothing else: not upload, not list,
+# not read. Pinata cannot limit a key to some files, so the bridge itself
+# unpins only CIDs of our own reports (see rrs-helpdesk-bridge unpin.py); the
+# account also holds files of another project.
+UNPIN_KEY_NAME = "rrs-unpin"
+UNPIN_SCOPE = {"pinning": {"unpin": True}}
+
 
 class PinataError(RuntimeError):
     pass
@@ -98,9 +106,15 @@ class PinataIssuer:
         return [k for k in found if name is None or k.name == name]
 
     def issue_site_key(self, client_id: str) -> PinataKeys:
+        return self._issue(key_name(client_id), SITE_SCOPE)
+
+    def issue_unpin_key(self) -> PinataKeys:
+        return self._issue(UNPIN_KEY_NAME, UNPIN_SCOPE)
+
+    def _issue(self, name: str, endpoints: dict) -> PinataKeys:
         data = self._request("POST", API, {
-            "keyName": key_name(client_id),
-            "permissions": {"admin": False, "endpoints": SITE_SCOPE},
+            "keyName": name,
+            "permissions": {"admin": False, "endpoints": endpoints},
         }) or {}
         key, secret = data.get("pinata_api_key"), data.get("pinata_api_secret")
         data.pop("JWT", None)

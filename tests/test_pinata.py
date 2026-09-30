@@ -116,3 +116,29 @@ def test_a_key_is_found_by_its_name_as_well_as_its_id(fake_pinata, run_cli, caps
         "https://api.pinata.cloud/v3/api_keys/k-hand"]
     assert run_cli("pinata-keys", "--key", "k-other") == 0
     assert "k-other" in capsys.readouterr().out
+
+
+def test_the_unpin_key_can_unpin_and_nothing_else(fake_pinata):
+    # The bridge holds it on the server; the account also stores another
+    # project's files, so the key must not be able to upload, list or read.
+    keys = PinataIssuer(JWT).issue_unpin_key()
+
+    assert (keys.key, keys.secret) == (NEW_KEY, NEW_SECRET)
+    method, _, body = fake_pinata.calls[0]
+    assert method == "POST"
+    assert body == {
+        "keyName": "rrs-unpin",
+        "permissions": {"admin": False, "endpoints": {"pinning": {"unpin": True}}},
+    }
+
+
+def test_the_unpin_item_holds_the_pair_as_hidden_fields():
+    from rrs_admin.cli import UNPIN_ITEM, unpin_item
+    from rrs_admin.sites import PinataKeys
+
+    item = unpin_item({"title": "", "note": "", "sections": []}, PinataKeys("k", "s"))
+
+    assert item["title"] == UNPIN_ITEM
+    fields = {f["field_name"]: f for f in item["sections"][0]["fields"]}
+    assert fields["API Key"] == {"field_name": "API Key", "field_type": "hidden", "value": "k"}
+    assert fields["API Secret"]["field_type"] == "hidden"
